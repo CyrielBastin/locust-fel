@@ -1,0 +1,12 @@
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+    test: {
+        include: ['./tests/**/*.test.js'],
+        reporters: 'verbose',
+        environment: 'jsdom',
+        coverage: {
+            provider: 'v8'
+        }
+    }
+})

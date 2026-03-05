@@ -1,0 +1,35 @@
+{
+  "name": "locust-fel",
+  "version": "0.0.1",
+  "description": "A simple framework to learn how frontend frameworks work",
+  "main": "dist/locust-fel.js",
+  "files": [
+    "dist/locust-fel.js",
+    "examples",
+    "docs"
+  ],
+  "scripts": {
+    "serve:examples": "npx http-server . -o ./examples/ -bg",
+    "build": "rollup -c",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "prepack": "npm run build"
+  },
+  "author": "Cyriel Bastin",
+  "license": "MIT",
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.4",
+    "@rollup/plugin-node-resolve": "^15.2.0",
+    "@vitest/coverage-v8": "^0.34.2",
+    "eslint": "^8.47.0",
+    "jsdom": "^22.1.0",
+    "rollup": "^3.28.0",
+    "rollup-plugin-cleanup": "^3.2.1",
+    "rollup-plugin-filesize": "^10.0.0",
+    "vitest": "^0.34.2"
+  },
+  "dependencies": {
+    "fast-deep-equal": "^3.1.3"
+  }
+}
