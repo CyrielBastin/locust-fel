@@ -683,8 +683,6 @@ describe('patch vdom with component host', () => {
   const component = { count: 5 }
   const props = {
     on: {
-      // Use method syntax to bind the component to the event handler.
-      // Arrow function's `this` can't be bound.
       click() {
         this.count++
       },
@@ -696,7 +694,7 @@ describe('patch vdom with component host', () => {
   })
 
   test('when the root node changes, bounds the component to the event handlers', async () => {
-    const oldVdom = h('button', ['Click'])
+    const oldVdom = h('button', {}, ['Click'])
     const newVdom = h('div', props, ['Click'])
 
     await patch(oldVdom, newVdom, component)
@@ -951,18 +949,7 @@ describe('patch keyed component list', () => {
   })
 })
 
-/**
- * These cases are interesting because, the indices of the list operations over the children
- * of the component require an offset: the number of children before the component's first child.
- *
- * The component patches its view, independently of the other components above it, but when
- * the component isn't the first child of the parent, the indices of the list operations
- * need to be offset.
- *
- * At mounting time, that offset is the passed index to the `mount()` method.
- * But things can move around, and the component can be moved to a different position.
- */
-describe('Components inside children arrays', () => {
+describe('components inside children arrays', () => {
   const SwapComponent = defineComponent({
     state() {
       return { swap: false }
@@ -1087,6 +1074,32 @@ test('patch component where the top-level element changes between renders', asyn
 
   expect(document.body.innerHTML).toBe('<span>B</span>')
   expect(newVdom.el).toBeInstanceOf(HTMLSpanElement)
+})
+
+test('patch two keyed components with top level fragments', async () => {
+  const Component = defineComponent({
+    render() {
+      return hFragment([h('span', {}, ['A']), h('span', {}, ['B'])])
+    },
+  })
+
+  const oldVdom = hFragment([
+    h(Component, { key: 'a' }),
+    h(Component, { key: 'b' }),
+  ])
+  const newVdom = hFragment([
+    h(Component, { key: 'b' }),
+    h(Component, { key: 'a' }),
+  ])
+
+  await patch(oldVdom, newVdom)
+
+  expect(document.body.innerHTML).toBe(
+    singleHtmlLine`
+      <span>A</span><span>B</span>
+      <span>A</span><span>B</span>
+    `
+  )
 })
 
 async function patch(oldVdom, newVdom, hostComponent = null) {
