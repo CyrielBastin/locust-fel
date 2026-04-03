@@ -1,6 +1,6 @@
 export { createApp } from './lib/app.js'
 export { defineComponent } from './lib/component.js'
 export { DOM_TYPES, h, hFragment, hString } from './lib/h.js'
-export { RouterLink, RouterOutler } from './lib/router-components.js'
+export { RouterLink, RouterOutlet } from './lib/router-components.js'
 export { HashRouter } from './lib/router.js'
 export { nextTick } from './lib/scheduler.js'

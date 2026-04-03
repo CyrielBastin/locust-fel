@@ -1,51 +1,3 @@
-function setAttributes(el, attrs) {
-  const { class: className, style, ...otherAttrs } = attrs;
-  delete otherAttrs.key;
-  if (className) {
-    setClass(el, className);
-  }
-  if (style) {
-    Object.entries(style).forEach(([prop, value]) => {
-      setStyle(el, prop, value);
-    });
-  }
-  for (const [name, value] of Object.entries(otherAttrs)) {
-    setAttribute(el, name, value);
-  }
-}
-function setAttribute(el, name, value) {
-  if (value == null) {
-    removeAttribute(el, name);
-  } else if (name.startsWith('data-')) {
-    el.setAttribute(name, value);
-  } else {
-    el[name] = value;
-  }
-}
-function removeAttribute(el, name) {
-  try {
-    el[name] = null;
-  } catch {
-    console.warn(`Failed to set "${name}" to null on ${el.tagName}`);
-  }
-  el.removeAttribute(name);
-}
-function setStyle(el, name, value) {
-  el.style[name] = value;
-}
-function removeStyle(el, name) {
-  el.style[name] = null;
-}
-function setClass(el, className) {
-  el.className = '';
-  if (typeof className === 'string') {
-    el.className = className;
-  }
-  if (Array.isArray(className)) {
-    el.classList.add(...className);
-  }
-}
-
 function addEventListeners(
   listeners = {},
   el,
@@ -227,10 +179,19 @@ const DOM_TYPES = {
   ELEMENT: 'element',
   FRAGMENT: 'fragment',
   COMPONENT: 'component',
+  SLOT: 'slot',
 };
 function h(tag, props = {}, children = []) {
   const type =
     typeof tag === 'string' ? DOM_TYPES.ELEMENT : DOM_TYPES.COMPONENT;
+  assert(
+    typeof props === 'object' && !Array.isArray(props),
+    '[vdom] h() expects an object as props (2nd argument)'
+  );
+  assert(
+    Array.isArray(children),
+    `[vdom] h() expects an array of children (3rd argument), but got '${typeof children}'`
+  );
   return {
     tag,
     props,
@@ -238,19 +199,42 @@ function h(tag, props = {}, children = []) {
     children: mapTextNodes(withoutNulls(children)),
   }
 }
+function isComponent({ tag }) {
+  return typeof tag === 'function'
+}
 function hString(str) {
-  return { type: DOM_TYPES.TEXT, value: str }
+  return { type: DOM_TYPES.TEXT, value: String(str) }
 }
 function hFragment(vNodes) {
-  assert(Array.isArray(vNodes), 'hFragment expects an array of vNodes');
+  assert(
+    Array.isArray(vNodes),
+    '[vdom] hFragment() expects an array of vNodes'
+  );
   return {
     type: DOM_TYPES.FRAGMENT,
     children: mapTextNodes(withoutNulls(vNodes)),
   }
 }
+let hSlotCalled = false;
+function didCreateSlot() {
+  return hSlotCalled
+}
+function resetDidCreateSlot() {
+  hSlotCalled = false;
+}
+function hSlot(children = []) {
+  hSlotCalled = true;
+  return { type: DOM_TYPES.SLOT, children }
+}
 function mapTextNodes(children) {
   return children.map((child) =>
-    typeof child === 'string' ? hString(child) : child
+    typeof child === 'string' ||
+    typeof child === 'number' ||
+    typeof child === 'boolean' ||
+    typeof child === 'bigint' ||
+    typeof child === 'symbol'
+      ? hString(child)
+      : child
   )
 }
 function extractChildren(vdom) {
@@ -301,6 +285,100 @@ function flushPromises() {
   return new Promise((resolve) => setTimeout(resolve))
 }
 
+function destroyDOM(vdom) {
+  const { type } = vdom;
+  switch (type) {
+    case DOM_TYPES.TEXT: {
+      removeTextNode(vdom);
+      break
+    }
+    case DOM_TYPES.ELEMENT: {
+      removeElementNode(vdom);
+      break
+    }
+    case DOM_TYPES.FRAGMENT: {
+      removeFragmentNodes(vdom);
+      break
+    }
+    case DOM_TYPES.COMPONENT: {
+      vdom.component.unmount();
+      enqueueJob(() => vdom.component.onUnmounted());
+      break
+    }
+    default: {
+      throw new Error(`Can't destroy DOM of type: ${type}`)
+    }
+  }
+  delete vdom.el;
+}
+function removeTextNode(vdom) {
+  const { el } = vdom;
+  assert(el instanceof Text);
+  el.remove();
+}
+function removeElementNode(vdom) {
+  const { el, children, listeners } = vdom;
+  assert(el instanceof HTMLElement);
+  el.remove();
+  children.forEach(destroyDOM);
+  if (listeners) {
+    removeEventListeners(listeners, el);
+    delete vdom.listeners;
+  }
+}
+function removeFragmentNodes(vdom) {
+  const { children } = vdom;
+  children.forEach(destroyDOM);
+}
+
+function setAttributes(el, attrs) {
+  const { class: className, style, ...otherAttrs } = attrs;
+  delete otherAttrs.key;
+  if (className) {
+    setClass(el, className);
+  }
+  if (style) {
+    Object.entries(style).forEach(([prop, value]) => {
+      setStyle(el, prop, value);
+    });
+  }
+  for (const [name, value] of Object.entries(otherAttrs)) {
+    setAttribute(el, name, value);
+  }
+}
+function setAttribute(el, name, value) {
+  if (value == null) {
+    removeAttribute(el, name);
+  } else if (name.startsWith('data-')) {
+    el.setAttribute(name, value);
+  } else {
+    el[name] = value;
+  }
+}
+function removeAttribute(el, name) {
+  try {
+    el[name] = null;
+  } catch {
+    console.warn(`Failed to set "${name}" to null on ${el.tagName}`);
+  }
+  el.removeAttribute(name);
+}
+function setStyle(el, name, value) {
+  el.style[name] = value;
+}
+function removeStyle(el, name) {
+  el.style[name] = null;
+}
+function setClass(el, className) {
+  el.className = '';
+  if (typeof className === 'string') {
+    el.className = className;
+  }
+  if (Array.isArray(className)) {
+    el.classList.add(...className);
+  }
+}
+
 function extractPropsAndEvents(vdom) {
   const { on: events = {}, ...props } = vdom.props;
   delete props.key;
@@ -309,7 +387,7 @@ function extractPropsAndEvents(vdom) {
 
 function mountDOM(vdom, parentEl, index, hostComponent = null) {
   if (parentEl == null) {
-    throw new Error('Parent element is null')
+    throw new Error('[mountDOM] Parent element is null')
   }
   switch (vdom.type) {
     case DOM_TYPES.TEXT: {
@@ -374,9 +452,11 @@ function createFragmentNodes(vdom, parentEl, index, hostComponent) {
   }
 }
 function createComponentNode(vdom, parentEl, index, hostComponent) {
-  const Component = vdom.tag;
+  const { tag: Component, children } = vdom;
   const { props, events } = extractPropsAndEvents(vdom);
   const component = new Component(props, events, hostComponent);
+  component.setExternalContent(children);
+  component.setAppContext(hostComponent?.appContext ?? {});
   component.mount(parentEl, index);
   vdom.component = component;
   vdom.el = component.firstElement;
@@ -397,56 +477,278 @@ function insert(el, parentEl, index) {
   }
 }
 
-function destroyDOM(vdom) {
-  const { type } = vdom;
-  switch (type) {
-    case DOM_TYPES.TEXT: {
-      removeTextNode(vdom);
-      break
+class Dispatcher {
+  #subs = new Map()
+  #afterHandlers = []
+  subscribe(commandName, handler) {
+    if (!this.#subs.has(commandName)) {
+      this.#subs.set(commandName, []);
     }
-    case DOM_TYPES.ELEMENT: {
-      removeElementNode(vdom);
-      break
+    const handlers = this.#subs.get(commandName);
+    if (handlers.includes(handler)) {
+      return () => {}
     }
-    case DOM_TYPES.FRAGMENT: {
-      removeFragmentNodes(vdom);
-      break
-    }
-    case DOM_TYPES.COMPONENT: {
-      vdom.component.unmount();
-      enqueueJob(() => vdom.component.onUnmounted());
-      break
-    }
-    default: {
-      throw new Error(`Can't destroy DOM of type: ${type}`)
+    handlers.push(handler);
+    return () => {
+      const idx = handlers.indexOf(handler);
+      handlers.splice(idx, 1);
     }
   }
-  delete vdom.el;
-}
-function removeTextNode(vdom) {
-  const { el } = vdom;
-  assert(el instanceof Text);
-  el.remove();
-}
-function removeElementNode(vdom) {
-  const { el, children, listeners } = vdom;
-  assert(el instanceof HTMLElement);
-  el.remove();
-  children.forEach(destroyDOM);
-  if (listeners) {
-    removeEventListeners(listeners, el);
-    delete vdom.listeners;
+  afterEveryCommand(handler) {
+    this.#afterHandlers.push(handler);
+    return () => {
+      const idx = this.#afterHandlers.indexOf(handler);
+      this.#afterHandlers.splice(idx, 1);
+    }
   }
-}
-function removeFragmentNodes(vdom) {
-  const { children } = vdom;
-  children.forEach(destroyDOM);
+  dispatch(commandName, payload) {
+    if (this.#subs.has(commandName)) {
+      this.#subs.get(commandName).forEach((handler) => handler(payload));
+    } else {
+      console.warn(`No handlers for command: ${commandName}`);
+    }
+    this.#afterHandlers.forEach((handler) => handler());
+  }
 }
 
-function createApp(RootComponent, props = {}) {
+function isNotEmptyString(str) {
+  return str !== ''
+}
+function isNotBlankOrEmptyString(str) {
+  return isNotEmptyString(str.trim())
+}
+
+const CATCH_ALL_ROUTE = '*';
+function validateRoute(route) {
+  if (typeof route.path !== 'string') {
+    throw new Error('Route path must be a string')
+  }
+  if (isNotBlankOrEmptyString(route.path) === false) {
+    throw new Error('Route path must not be empty')
+  }
+  if (route.path[0] !== '/' && route.path !== CATCH_ALL_ROUTE) {
+    throw new Error(
+      'Route path must start with a "/" or be the catch-all route "*"'
+    )
+  }
+  if (route.redirect && route.path === route.redirect) {
+    throw new Error("A redirect route can't redirect to itself")
+  }
+}
+function makeRouteMatcher(route) {
+  validateRoute(route);
+  return routeHasParams(route)
+    ? makeMatcherWithParams(route)
+    : makeMatcherWithoutParams(route)
+}
+function routeHasParams({ path }) {
+  return path.includes(':')
+}
+function makeMatcherWithParams(route) {
+  const regex = makeRouteWithParamsRegex(route);
+  const isRedirect = typeof route.redirect === 'string';
+  return {
+    route,
+    isRedirect,
+    checkMatch(path) {
+      return regex.test(path)
+    },
+    extractParams(path) {
+      const { groups } = regex.exec(path);
+      return groups
+    },
+    extractQuery,
+  }
+}
+function makeRouteWithParamsRegex({ path }) {
+  const regex = path.replace(
+    /:([^/]+)/g,
+    (_, paramName) => `(?<${paramName}>[^/]+)`
+  );
+  return new RegExp(`^${regex}$`)
+}
+function makeMatcherWithoutParams(route) {
+  const regex = makeRouteWithoutParamsRegex(route);
+  const isRedirect = typeof route.redirect === 'string';
+  return {
+    route,
+    isRedirect,
+    checkMatch(path) {
+      return regex.test(path)
+    },
+    extractParams() {
+      return {}
+    },
+    extractQuery,
+  }
+}
+function makeRouteWithoutParamsRegex({ path }) {
+  if (path === CATCH_ALL_ROUTE) {
+    return new RegExp('^.*$')
+  }
+  return new RegExp(`^${path}$`)
+}
+function extractQuery(path) {
+  const queryIndex = path.indexOf('?');
+  if (queryIndex === -1) {
+    return {}
+  }
+  const search = new URLSearchParams(path.slice(queryIndex + 1));
+  return Object.fromEntries(search.entries())
+}
+
+const ROUTER_EVENT = 'router-event';
+class HashRouter {
+  #isInitialized = false
+  #matchers = []
+  #matchedRoute = null
+  #dispatcher = new Dispatcher()
+  #subscriptions = new WeakMap()
+  #subscriberFns = new Set()
+  get matchedRoute() {
+    return this.#matchedRoute
+  }
+  #params = {}
+  get params() {
+    return this.#params
+  }
+  #query = {}
+  get query() {
+    return this.#query
+  }
+  get #currentRouteHash() {
+    const hash = document.location.hash;
+    if (hash === '') {
+      return '/'
+    }
+    return hash.slice(1)
+  }
+  #onPopState = () => this.#matchCurrentRoute()
+  constructor(routes = []) {
+    assert(Array.isArray(routes), 'Routes must be an array');
+    this.#matchers = routes.map(makeRouteMatcher);
+  }
+  async init() {
+    if (this.#isInitialized) {
+      return
+    }
+    if (document.location.hash === '') {
+      window.history.replaceState({}, '', '#/');
+    }
+    window.addEventListener('popstate', this.#onPopState);
+    await this.#matchCurrentRoute();
+    this.#isInitialized = true;
+  }
+  destroy() {
+    if (!this.#isInitialized) {
+      return
+    }
+    window.removeEventListener('popstate', this.#onPopState);
+    Array.from(this.#subscriberFns).forEach(this.unsubscribe, this);
+    this.#isInitialized = false;
+  }
+  async navigateTo(path) {
+    const matcher = this.#matchers.find((matcher) =>
+      matcher.checkMatch(path)
+    );
+    if (matcher == null) {
+      console.warn(`[Router] No route matches path "${path}"`);
+      this.#matchedRoute = null;
+      this.#params = {};
+      this.#query = {};
+      return
+    }
+    if (matcher.isRedirect) {
+      return this.navigateTo(matcher.route.redirect)
+    }
+    const from = this.#matchedRoute;
+    const to = matcher.route;
+    const { shouldNavigate, shouldRedirect, redirectPath } =
+      await this.#canChangeRoute(from, to);
+    if (shouldRedirect) {
+      return this.navigateTo(redirectPath)
+    }
+    if (shouldNavigate) {
+      this.#matchedRoute = matcher.route;
+      this.#params = matcher.extractParams(path);
+      this.#query = matcher.extractQuery(path);
+      this.#pushState(path);
+      this.#dispatcher.dispatch(ROUTER_EVENT, { from, to, router: this });
+    }
+  }
+  back() {
+    window.history.back();
+  }
+  forward() {
+    window.history.forward();
+  }
+  subscribe(handler) {
+    const unsubscribe = this.#dispatcher.subscribe(ROUTER_EVENT, handler);
+    this.#subscriptions.set(handler, unsubscribe);
+    this.#subscriberFns.add(handler);
+  }
+  unsubscribe(handler) {
+    const unsubscribe = this.#subscriptions.get(handler);
+    if (unsubscribe) {
+      unsubscribe();
+      this.#subscriptions.delete(handler);
+      this.#subscriberFns.delete(handler);
+    }
+  }
+  #pushState(path) {
+    window.history.pushState({}, '', `#${path}`);
+  }
+  #matchCurrentRoute() {
+    return this.navigateTo(this.#currentRouteHash)
+  }
+  async #canChangeRoute(from, to) {
+    const guard = to.beforeEnter;
+    if (typeof guard !== 'function') {
+      return {
+        shouldRedirect: false,
+        shouldNavigate: true,
+        redirectPath: null,
+      }
+    }
+    const result = await guard(from?.path, to?.path);
+    if (result === false) {
+      return {
+        shouldRedirect: false,
+        shouldNavigate: false,
+        redirectPath: null,
+      }
+    }
+    if (typeof result === 'string') {
+      return {
+        shouldRedirect: true,
+        shouldNavigate: false,
+        redirectPath: result,
+      }
+    }
+    return {
+      shouldRedirect: false,
+      shouldNavigate: true,
+      redirectPath: null,
+    }
+  }
+}
+class NoopRouter {
+  init() {}
+  destroy() {}
+  navigateTo() {}
+  back() {}
+  forward() {}
+  subscribe() {}
+  unsubscribe() {}
+}
+
+function createApp(RootComponent, props = {}, options = {}) {
   let parentEl = null;
   let isMounted = false;
   let vdom = null;
+  const context = {
+    router: options.router || new NoopRouter(),
+  };
   function reset() {
     parentEl = null;
     isMounted = false;
@@ -459,7 +761,8 @@ function createApp(RootComponent, props = {}) {
       }
       parentEl = _parentEl;
       vdom = h(RootComponent, props);
-      mountDOM(vdom, parentEl);
+      mountDOM(vdom, parentEl, null, { appContext: context });
+      context.router.init();
       isMounted = true;
     },
     unmount() {
@@ -467,6 +770,7 @@ function createApp(RootComponent, props = {}) {
         throw new Error('The application is not mounted')
       }
       destroyDOM(vdom);
+      context.router.destroy();
       reset();
     },
   }
@@ -505,40 +809,6 @@ var fastDeepEqual = function equal(a, b) {
   return a!==a && b!==b;
 };
 var equal = getDefaultExportFromCjs(fastDeepEqual);
-
-class Dispatcher {
-  #subs = new Map()
-  #afterHandlers = []
-  subscribe(commandName, handler) {
-    if (!this.#subs.has(commandName)) {
-      this.#subs.set(commandName, []);
-    }
-    const handlers = this.#subs.get(commandName);
-    if (handlers.includes(handler)) {
-      return () => {}
-    }
-    handlers.push(handler);
-    return () => {
-      const idx = handlers.indexOf(handler);
-      handlers.splice(idx, 1);
-    }
-  }
-  afterEveryCommand(handler) {
-    this.#afterHandlers.push(handler);
-    return () => {
-      const idx = this.#afterHandlers.indexOf(handler);
-      this.#afterHandlers.splice(idx, 1);
-    }
-  }
-  dispatch(commandName, payload) {
-    if (this.#subs.has(commandName)) {
-      this.#subs.get(commandName).forEach((handler) => handler(payload));
-    } else {
-      console.warn(`No handlers for command: ${commandName}`);
-    }
-    this.#afterHandlers.forEach((handler) => handler());
-  }
-}
 
 function areNodesEqual(nodeOne, nodeTwo) {
   if (nodeOne.type !== nodeTwo.type) {
@@ -582,13 +852,6 @@ function objectsDiff(oldObj, newObj) {
 }
 function hasOwnProperty(obj, prop) {
   return Object.prototype.hasOwnProperty.call(obj, prop)
-}
-
-function isNotEmptyString(str) {
-  return str !== ''
-}
-function isNotBlankOrEmptyString(str) {
-  return isNotEmptyString(str.trim())
 }
 
 function patchDOM(oldVdom, newVdom, parentEl, hostComponent = null) {
@@ -717,7 +980,9 @@ function patchEvents(
 }
 function patchComponent(oldVdom, newVdom) {
   const { component } = oldVdom;
+  const { children } = newVdom;
   const { props } = extractPropsAndEvents(newVdom);
+  component.setExternalContent(children);
   component.updateProps(props);
   newVdom.component = component;
   newVdom.el = component.firstElement;
@@ -746,10 +1011,14 @@ function patchChildren(oldVdom, newVdom, hostComponent) {
       case ARRAY_DIFF_OP.MOVE: {
         const oldChild = oldChildren[originalIndex];
         const newChild = newChildren[index];
-        const el = oldChild.el;
         const elAtTargetIndex = parentEl.childNodes[index + offset];
-        parentEl.insertBefore(el, elAtTargetIndex);
-        patchDOM(oldChild, newChild, parentEl, hostComponent);
+        const elementsToMove = isComponent(oldChild)
+          ? oldChild.component.elements
+          : [oldChild.el];
+        elementsToMove.forEach((el) => {
+          parentEl.insertBefore(el, elAtTargetIndex);
+          patchDOM(oldChild, newChild, parentEl, hostComponent);
+        });
         break
       }
       case ARRAY_DIFF_OP.NOOP: {
@@ -763,6 +1032,47 @@ function patchChildren(oldVdom, newVdom, hostComponent) {
       }
     }
   }
+}
+
+function traverseDFS(
+  vdom,
+  processNode,
+  shouldSkipBranch = () => false,
+  parentNode = null,
+  index = null
+) {
+  if (shouldSkipBranch(vdom)) return
+  processNode(vdom, parentNode, index);
+  if (vdom.children) {
+    vdom.children.forEach((child, i) =>
+      traverseDFS(child, processNode, shouldSkipBranch, vdom, i)
+    );
+  }
+}
+
+function fillSlots(vdom, externalContent = []) {
+  function processNode(node, parent, index) {
+    insertViewInSlot(node, parent, index, externalContent);
+  }
+  traverseDFS(vdom, processNode, shouldSkipBranch);
+}
+function insertViewInSlot(node, parent, index, externalContent) {
+  if (node.type !== DOM_TYPES.SLOT) return
+  assert(parent !== null, 'Slot nodes must have a parent');
+  assert(index !== null, 'Slot nodes must have an index');
+  const defaultContent = node.children;
+  const views =
+    externalContent.length > 0 ? externalContent : defaultContent;
+  assert(Array.isArray(views), 'Slot views must be an array');
+  const hasContent = views.length > 0;
+  if (hasContent) {
+    parent.children.splice(index, 1, hFragment(views));
+  } else {
+    parent.children.splice(index, 1);
+  }
+}
+function shouldSkipBranch(node) {
+  return node.type === DOM_TYPES.COMPONENT
 }
 
 const emptyFn = () => {};
@@ -781,6 +1091,8 @@ function defineComponent({
     #parentComponent = null
     #dispatcher = new Dispatcher()
     #subscriptions = []
+    #appContext = null
+    #children = []
     constructor(props = {}, eventHandlers = {}, parentComponent = null) {
       this.props = props;
       this.state = state ? state(props) : {};
@@ -792,6 +1104,12 @@ function defineComponent({
     }
     onUnmounted() {
       return Promise.resolve(onUnmounted.call(this))
+    }
+    setAppContext(appContext) {
+      this.#appContext = appContext;
+    }
+    get appContext() {
+      return this.#appContext
     }
     get parentComponent() {
       return this.#parentComponent
@@ -834,8 +1152,16 @@ function defineComponent({
       this.state = { ...this.state, ...state };
       this.#patch();
     }
+    setExternalContent(children) {
+      this.#children = children;
+    }
     render() {
-      return render.call(this)
+      const vdom = render.call(this);
+      if (didCreateSlot()) {
+        fillSlots(vdom, this.#children);
+        resetDidCreateSlot();
+      }
+      return vdom
     }
     mount(hostEl, index = null) {
       if (this.#isMounted) {
@@ -894,4 +1220,50 @@ function defineComponent({
   return Component
 }
 
-export { DOM_TYPES, createApp, defineComponent, h, hFragment, hString, nextTick };
+const RouterOutlet = defineComponent({
+  state() {
+    return {
+      matchedRoute: null,
+      subscription: null,
+    }
+  },
+  onMounted() {
+    const subscription = this.appContext.router.subscribe(({ to }) => {
+      this.handleRouteChange(to);
+    });
+    this.updateState({ subscription });
+  },
+  onUnmounted() {
+    const { subscription } = this.state;
+    this.appContext.router.unsubscribe(subscription);
+  },
+  handleRouteChange(matchedRoute) {
+    this.updateState({ matchedRoute });
+  },
+  render() {
+    const { matchedRoute } = this.state;
+    return h('div', { id: 'router-outlet' }, [
+      matchedRoute ? h(matchedRoute.component) : null,
+    ])
+  },
+});
+const RouterLink = defineComponent({
+  render() {
+    const { to } = this.props;
+    return h(
+      'a',
+      {
+        href: to,
+        on: {
+          click: (e) => {
+            e.preventDefault();
+            this.appContext.router.navigateTo(to);
+          },
+        },
+      },
+      [hSlot()]
+    )
+  },
+});
+
+export { DOM_TYPES, HashRouter, RouterLink, RouterOutlet, createApp, defineComponent, h, hFragment, hString, nextTick };
