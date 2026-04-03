@@ -146,13 +146,19 @@ const TodoItem = defineComponent({
         value: edited,
         on: {
           input: ({ target }) => this.updateState({ edited: target.value }),
+          keydown: ({ key }) => {
+            if (key === 'Enter' && this.state.edited.length >= 3) {
+              this.saveEdition()
+            }
+          },
         },
       }),
       h(
         'button',
         {
+          disabled: this.state.edited.length < 3,
           on: {
-            click: this.saveEdition,
+            click: this.saveEdition
           },
         },
         ['Save']
