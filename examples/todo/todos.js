@@ -3,7 +3,7 @@ import {
   defineComponent,
   h,
   hFragment,
-} from '../dist/locust-fel.js'
+} from '../../dist/locust-fel.js'
 import { readTodos, writeTodos } from './todos-repository.js'
 
 const App = defineComponent({
