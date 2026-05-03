@@ -1266,4 +1266,4 @@ const RouterLink = defineComponent({
   },
 });
 
-export { DOM_TYPES, HashRouter, RouterLink, RouterOutlet, createApp, defineComponent, h, hFragment, hString, nextTick };
+export { DOM_TYPES, HashRouter, RouterLink, RouterOutlet, createApp, defineComponent, h, hFragment, hSlot, hString, nextTick };
